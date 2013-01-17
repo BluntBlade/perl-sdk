@@ -21,6 +21,7 @@ use Net::Curl::Form qw(:constants);  # external library
 
 use QBox::Stub;
 use QBox::Misc;
+use QBox::XLog;
 
 our @ISA = qw(Exporter);
 our @EXPORT = qw(
@@ -54,6 +55,11 @@ sub qbox_curl_call_pre {
 
     if (ref($opts->{_headers}) eq 'HASH') {
         qbox_hash_merge($headers, $opts->{_headers}, 'FROM');
+    }
+
+    if (ref($opts->{_xlog}) eq 'QBox::XLog') {
+        $headers->{'X-Reqid'} = $opts->{_xlog}->req_id();
+        $headers->{'X-Log'}   = $opts->{_xlog}->marshal();
     }
 
     my $api = $opts->{_api} || 'unknown_api';
