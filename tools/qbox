@@ -15,6 +15,20 @@ use QBox::Misc;
 use QBox::Tools::Engine;
 use QBox::Tools::SlaveManager;
 
+my %not_background_cmds = (
+    set_host           => 1,
+    unset_host         => 1,
+
+    set_auth           => 1,
+    auth_by_password   => 1,
+    auth_by_access_key => 1,
+
+    set_header         => 1,
+    unset_header       => 1,
+
+    use_xlog           => 1,
+);
+
 ### up callbacks
 my $up_read_progress_as_plain_text = sub {
     my $fh = shift;
@@ -185,6 +199,8 @@ my $verbose = 0;
 my $pretty  = undef;
 my $prompt  = undef;
 
+my $default_in_background = undef;
+
 my $get_tv   = undef;
 my $delta_tv = undef;
 
@@ -259,6 +275,11 @@ sub get_opts {
 
         if ($arg =~ m/^(?:--pretty|-P)/) {
             $pretty = 1;
+            next;
+        }
+
+        if ($arg =~ m/^(?:--background|-B)/) {
+            $default_in_background = 1;
             next;
         }
 
@@ -362,7 +383,7 @@ my $slave_callback = sub {
     return undef; # no longer busy
 };
 
-sub run_in_slave {
+sub run_as_slave {
     my $engine  = shift;
     my $cmd_idx = shift;
     my $cmd_ln  = shift;
@@ -384,6 +405,8 @@ sub run_in_slave {
         $debug   = undef;
         $pretty  = undef;
 
+        $default_in_background = undef;
+
         $proc->{work_write}->autoflush(1);
         $proc->{work_err}->autoflush(1);
 
@@ -398,7 +421,7 @@ sub run_in_slave {
     print {$proc->{mgr_write}} "$cmd_ln\n";
 
     return {}, { 'code' => 200, 'message' => 'Slave task dispatched' };
-} # run_in_slave
+} # run_as_slave
 
 my %wrapped_cmd = (
     'resumable_put_parallel' => sub {
@@ -432,7 +455,7 @@ my %wrapped_cmd = (
                     $prog->{progs}[$j]{message} = $args->{message};
                     return 1;
                 },
-                '_slave' => 1,
+                '_bg' => 1,
             };
             my $cmd_ln = join(q{ }, @$cmd_args);
 
@@ -494,6 +517,16 @@ my %wrapped_cmd = (
 
         return {}, { 'code' => 200, 'message' => "File uploaded." };
     },
+
+    'run_in_foreground' => sub {
+        $default_in_background = undef;
+        return {}, { 'code' => 200, 'message' => "Running consequent tasks in FOREGROUND mode." };
+    },
+
+    'run_in_background' => sub {
+        $default_in_background = 1;
+        return {}, { 'code' => 200, 'message' => "Running consequent tasks in BACKGROUND mode." };
+    },
 );
 
 $wrapped_cmd{rputl} = $wrapped_cmd{resumable_put_parallel};
@@ -530,9 +563,27 @@ sub exec_cmd {
 
     $opts->{_begin_tv} = $get_tv->();
 
-    if (defined($opts->{_slave})) {
-        delete $opts->{_slave};
-        return run_in_slave($engine, $cmd_idx, $cmd_ln, undef, $opts);
+    RUN_AS_SLAVE:
+    {
+        if ($not_background_cmds{$cmd}) {
+            last RUN_AS_SLAVE;
+        }
+
+        my $bg = (defined($opts->{_background}) || defined($opts->{_bg})) ? 1 : undef;
+        my $fg = (defined($opts->{_foreground}) || defined($opts->{_fg})) ? 1 : undef;
+
+        if ($default_in_background) {
+            if ($fg) {
+                last RUN_AS_SLAVE;
+            }
+        }
+        elsif (not $bg) {
+            last RUN_AS_SLAVE;
+        }
+
+        delete $opts->{_background};
+        delete $opts->{_bg};
+        return run_as_slave($engine, $cmd_idx, $cmd_ln, undef, $opts);
     }
 
     my $cmd_args = list_to_hash($args);
@@ -699,7 +750,7 @@ sub parse_cmd {
 
     if ($remain =~ m/^(.*)\s+[&]((?:\d+)?)$/) {
         my $job = $2 || 0;
-        $opts->{_slave} = $job + 0;
+        $opts->{_bg} = $job + 0;
         $remain = $1;
     }
 
@@ -723,9 +774,6 @@ sub exec_file {
         my $cmd_ln = <$fh>;
 
         if (not defined($cmd_ln)) {
-            if ($slave_mgr->is_busy()){
-                next;
-            }
             last;
         }
 
@@ -764,6 +812,8 @@ sub slave {
             die "$EVAL_ERROR";
         }
     } # foreach
+
+    $slave_mgr->check_done() while ($slave_mgr->is_busy());
 } # slave
 
 sub prompt {
