@@ -373,6 +373,8 @@ sub run_in_slave {
     $uservar->{callback} = $opts->{_callback};
     $uservar->{begin_tv} = $opts->{_begin_tv};
 
+    my $next_xlog_id = $engine->next_xlog_id();
+
     my $proc = $slave_mgr->start($slave_callback, $uservar);
     if ($proc->{child}) {
         $ps_level = 1;
@@ -384,6 +386,9 @@ sub run_in_slave {
 
         $proc->{work_write}->autoflush(1);
         $proc->{work_err}->autoflush(1);
+
+        $engine->use_xlog({ id => $next_xlog_id });
+
         slave($engine, [\*STDIN]);
         exit(0);
     }
@@ -523,15 +528,15 @@ sub exec_cmd {
         }
     }
 
-    my $cmd_args = list_to_hash($args);
-    my $cmd_opts = list_to_hash($args, $opt_re);
-
     $opts->{_begin_tv} = $get_tv->();
 
     if (defined($opts->{_slave})) {
         delete $opts->{_slave};
         return run_in_slave($engine, $cmd_idx, $cmd_ln, undef, $opts);
     }
+
+    my $cmd_args = list_to_hash($args);
+    my $cmd_opts = list_to_hash($args, $opt_re);
 
     if ($cmd eq 'rput' or $cmd eq 'resumable_put') {
         my $notify = {
@@ -552,6 +557,8 @@ sub exec_cmd {
 
     my $final_opts = qbox_hash_merge({}, $opts, 'FROM');
     $final_opts = qbox_hash_merge($final_opts, $cmd_opts, 'FROM');
+
+    $final_opts->{_xlog} = $engine->gen_xlog();
 
     my ($ret, $err) = ();
     if ($wrapped_cmd{$cmd}) {

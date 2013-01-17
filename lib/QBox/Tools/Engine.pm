@@ -32,6 +32,7 @@ use QBox::EU;
 use QBox::UC;
 use QBox::Misc;
 use QBox::ReaderAt::File;
+use QBox::XLog;
 
 my $pickup_param = sub {
     foreach my $p (@_) {
@@ -512,6 +513,7 @@ sub new {
             'policy'        => undef,
         },
         'out_fh' => undef,
+        'xlog'   => {},
     };
     return bless $self, $class;
 } # new
@@ -536,6 +538,37 @@ sub new_eu {
     my $self = shift;
     return QBox::EU->new($self->{client}, $self->{hosts});
 } # new_eu
+
+sub next_xlog_id {
+    my $self = shift;
+
+    if ($self->{xlog}{start_id}) {
+        return $self->{xlog}{start_id}++;
+    }
+
+    if ($self->{xlog}{id}) {
+        return $self->{xlog}{id};
+    }
+
+    return undef;
+} # next_xlog_id
+
+sub gen_xlog {
+    my $self = shift;
+
+    if ($self->{xlog}{gen_xlog}) {
+        my $id = $self->next_xlog_id();
+        if ($id) {
+            return QBox::XLog->new($id);
+        }
+
+        return QBox::XLog->new();
+    }
+
+    return undef;
+} # gen_xlog
+
+### command methods
 
 sub set_host {
     my $self  = shift;
@@ -712,6 +745,17 @@ sub unset_header {
 
     return {}, { 'code' => 200, 'message' => 'Header info unset' };
 } # unset_header
+
+sub use_xlog {
+    my $self = shift;
+    my $args = shift;
+
+    $self->{xlog}{gen_xlog} = 1;
+    $self->{xlog}{start_id} = $args->{start_id};
+    $self->{xlog}{id}       = $args->{id};
+
+    return {}, { 'code' => 200, 'message' => 'Using XLog' };
+} # use_xlog
 
 1;
 

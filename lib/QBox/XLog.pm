@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 use English;
-use Time::HiRes;
+use Time::HiRes qw(gettimeofday);
 
 use QBox::Misc;
 
@@ -49,19 +49,23 @@ my $gen_timestamp = sub {
     );
 };
 
+### for procedures
+
+### for OOP
 sub new {
     my $class = shift || __PACKAGE__;
+    my $req_id = shift;
+    
+    if (not defined($req_id)) {
+        $req_id = sprintf("${PID}%s%s", gettimeofday());
+    }
+
     my $self  = {
-        req_id => shift,
+        req_id => qbox_base64_encode_urlsafe($req_id),
         msg    => [],
     };
 
-    if (not defined($self->{req_id})) {
-        my $id_str = sprintf("${PID}%s%s", gettimeofday());
-        $self->{req_id} = qbox_base64_encode_urlsafe($id_str);
-    }
-
-    return bless $class, $self;
+    return bless $self, $class;
 } # new
 
 sub marshal {
@@ -71,7 +75,7 @@ sub marshal {
 
 sub req_id {
     my $self = shift;
-    return $self->{seq_id};
+    return $self->{req_id};
 } # req_id
 
 sub log {
@@ -106,6 +110,12 @@ sub fatal {
     my $self  = shift;
     return $self->log(QBOX_MSG_FATAL, @_);
 } # fatal
+
+sub log_begin {
+    my $self = shift;
+    my ($package, undef, undef, $subroutine) = caller(1);
+    $self->info("${package}::${subroutine} begins.");
+} # log_begin
 
 1;
 
